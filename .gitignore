@@ -1,0 +1,5 @@
+node_modules/
+.env
+data/cookies.json
+data/cart-history.json
+*.log

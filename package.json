@@ -1,0 +1,17 @@
+{
+  "name": "hafizakartci-agent",
+  "version": "1.0.0",
+  "description": "Hafıza Kartçı toptancı ajan sistemi - Otomatik ürün arama ve sepet yönetimi",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "node-cron": "^4.2.1",
+    "puppeteer": "^24.9.0"
+  }
+}

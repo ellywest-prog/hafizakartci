@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hafıza Kartçı Ajan | Akıllı Sipariş Sistemi</title>
+  <meta name="description" content="Hafıza Kartçı toptancı ajan sistemi - Otomatik ürün arama ve sepet yönetimi">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+  <!-- Üst Bar -->
+  <header id="topbar">
+    <div class="topbar-left">
+      <div class="logo">
+        <span class="logo-icon">🤖</span>
+        <span class="logo-text">HafızaKartçı<span class="logo-accent">Ajan</span></span>
+      </div>
+    </div>
+    <div class="topbar-center">
+      <div id="connection-status" class="status-badge disconnected">
+        <span class="status-dot"></span>
+        <span class="status-text">Bağlı Değil</span>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <button id="btn-settings" class="icon-btn" title="Ayarlar">⚙️</button>
+      <div id="cart-mini" class="cart-mini">
+        <span class="cart-icon">🛒</span>
+        <span id="cart-count" class="cart-count">0</span>
+        <span id="cart-total-mini" class="cart-total-mini">0 ₺</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Ana İçerik -->
+  <main id="main-content">
+    <!-- Sol Panel - Arama & Sonuçlar -->
+    <section id="search-panel" class="panel">
+      <div class="panel-header">
+        <h2>📦 Ürün Arama</h2>
+        <p class="panel-subtitle">Toptancınızda ürün arayın</p>
+      </div>
+
+      <!-- Arama Kutusu -->
+      <form id="search-form" class="search-box">
+        <div class="search-input-wrap">
+          <span class="search-icon">🔍</span>
+          <input
+            type="text"
+            id="search-input"
+            placeholder="Ürün adı yazın... (örn: Samsung S24 Kılıf)"
+            autocomplete="off"
+          >
+          <button type="submit" id="btn-search" class="btn-search">Ara</button>
+        </div>
+        <div class="search-options">
+          <select id="search-sort">
+            <option value="pd.name-ASC">İsim (A-Z)</option>
+            <option value="pd.name-DESC">İsim (Z-A)</option>
+            <option value="ps.price-ASC">Fiyat (Düşük → Yüksek)</option>
+            <option value="ps.price-DESC">Fiyat (Yüksek → Düşük)</option>
+          </select>
+          <select id="search-limit">
+            <option value="12">12 ürün</option>
+            <option value="25">25 ürün</option>
+            <option value="50">50 ürün</option>
+          </select>
+        </div>
+      </form>
+
+      <!-- Sonuçlar -->
+      <div id="search-results" class="search-results">
+        <div class="empty-state">
+          <div class="empty-icon">🔎</div>
+          <h3>Ürün Arayın</h3>
+          <p>Sattığınız ürünün adını yazıp aratın.<br>Ajan, toptancınızda bu ürünü ve alternatiflerini bulacak.</p>
+        </div>
+      </div>
+
+      <!-- Sayfalama -->
+      <div id="pagination" class="pagination hidden"></div>
+
+      <!-- Yükleniyor -->
+      <div id="search-loading" class="loading hidden">
+        <div class="spinner"></div>
+        <p>Ürünler aranıyor...</p>
+      </div>
+    </section>
+
+    <!-- Sağ Panel - Sepet -->
+    <aside id="cart-panel" class="panel cart-panel">
+      <div class="panel-header">
+        <h2>🛒 Sepetim</h2>
+        <button id="btn-clear-cart" class="btn-text-danger" title="Sepeti Temizle">Temizle</button>
+      </div>
+
+      <!-- Hedef İlerleme -->
+      <div id="target-progress" class="target-progress">
+        <div class="progress-info">
+          <span class="progress-label">Hedef Tutara İlerleme</span>
+          <span id="progress-amount" class="progress-amount">0 ₺ / 5.000 ₺</span>
+        </div>
+        <div class="progress-bar">
+          <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+        </div>
+        <span id="progress-remaining" class="progress-remaining">Kalan: 5.000 ₺</span>
+      </div>
+
+      <!-- Sepet İçeriği -->
+      <div id="cart-items" class="cart-items">
+        <div class="empty-state small">
+          <div class="empty-icon">🛒</div>
+          <p>Sepetiniz boş</p>
+        </div>
+      </div>
+
+      <!-- Sepet Özet -->
+      <div id="cart-footer" class="cart-footer hidden">
+        <div class="cart-summary">
+          <div class="summary-row">
+            <span>Ürün Sayısı:</span>
+            <span id="summary-count">0</span>
+          </div>
+          <div class="summary-row total">
+            <span>Toplam:</span>
+            <span id="summary-total">0 ₺</span>
+          </div>
+        </div>
+        <button id="btn-sync-cart" class="btn btn-secondary full-width">
+          🔄 Siteye Senkronize Et
+        </button>
+        <button id="btn-order" class="btn btn-primary full-width" disabled>
+          📦 Siparişi Tamamla
+        </button>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Bildirim -->
+  <div id="notification" class="notification hidden">
+    <div class="notification-content">
+      <span id="notification-icon" class="notification-icon">✅</span>
+      <span id="notification-text" class="notification-text"></span>
+    </div>
+    <button class="notification-close" onclick="hideNotification()">✕</button>
+  </div>
+
+  <!-- Hedef Ulaşıldı Banner -->
+  <div id="target-reached-banner" class="target-banner hidden">
+    <div class="banner-content">
+      <div class="banner-icon">🎉</div>
+      <div class="banner-text">
+        <h3>Hedef Tutara Ulaştınız!</h3>
+        <p>Sepetiniz hedef tutarınıza ulaştı. Siparişinizi kontrol edip onaylayabilirsiniz.</p>
+      </div>
+      <button id="btn-review-order" class="btn btn-glow">Siparişi Gözden Geçir</button>
+      <button class="banner-close" onclick="hideTargetBanner()">✕</button>
+    </div>
+  </div>
+
+  <!-- Sipariş Onay Modalı -->
+  <div id="order-modal" class="modal hidden">
+    <div class="modal-overlay" onclick="closeOrderModal()"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>📦 Sipariş Özeti</h2>
+        <button class="modal-close" onclick="closeOrderModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="order-summary-items" class="order-items"></div>
+        <div class="order-total-section">
+          <div class="order-total-row">
+            <span>Toplam Ürün:</span>
+            <span id="order-item-count">0</span>
+          </div>
+          <div class="order-total-row grand">
+            <span>Genel Toplam:</span>
+            <span id="order-grand-total">0 ₺</span>
+          </div>
+        </div>
+        <div class="order-note">
+          <p>⚠️ "Siparişi Onayla" butonuna bastığınızda ürünler hafizakartci.com sepetinize eklenecektir. Ardından siteye gidip siparişinizi tamamlamanız gerekecektir.</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeOrderModal()">İptal</button>
+        <button id="btn-confirm-order" class="btn btn-success">✅ Siparişi Onayla</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ayarlar Modalı -->
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-overlay" onclick="closeSettingsModal()"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>⚙️ Ayarlar</h2>
+        <button class="modal-close" onclick="closeSettingsModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="settings-section">
+          <h3>🔐 Giriş Bilgileri</h3>
+          <div class="form-group">
+            <label for="settings-email">E-posta</label>
+            <input type="email" id="settings-email" placeholder="E-posta adresiniz">
+          </div>
+          <div class="form-group">
+            <label for="settings-password">Şifre</label>
+            <input type="password" id="settings-password" placeholder="Şifreniz">
+          </div>
+          <button id="btn-login" class="btn btn-primary">Giriş Yap</button>
+        </div>
+        <div class="settings-section">
+          <h3>💰 Sipariş Ayarları</h3>
+          <div class="form-group">
+            <label for="settings-target">Hedef Sepet Tutarı (₺)</label>
+            <input type="number" id="settings-target" placeholder="5000" min="0" step="100">
+          </div>
+          <button id="btn-save-settings" class="btn btn-secondary">Ayarları Kaydet</button>
+        </div>
+        <div class="settings-section">
+          <h3>📱 Telegram Bildirimleri</h3>
+          <div id="telegram-status-info" class="telegram-status">
+            <span class="telegram-dot">⚪</span>
+            <span id="telegram-status-text">Kontrol ediliyor...</span>
+          </div>
+          <p class="settings-hint">Telegram'da bota bir mesaj gönderin, ardından "Bağlan" butonuna tıklayın. Bot, chat ID'nizi otomatik algılayacak.</p>
+          <div class="telegram-actions">
+            <button id="btn-telegram-setup" class="btn btn-primary">📱 Telegram'a Bağlan</button>
+            <button id="btn-telegram-test" class="btn btn-secondary" disabled>🧪 Test Mesajı</button>
+            <button id="btn-telegram-report" class="btn btn-secondary" disabled>📊 Rapor Gönder</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sipariş Sonuç Modalı -->
+  <div id="result-modal" class="modal hidden">
+    <div class="modal-overlay" onclick="closeResultModal()"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="result-title">Sipariş Durumu</h2>
+        <button class="modal-close" onclick="closeResultModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="result-content"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="closeResultModal()">Tamam</button>
+        <a id="result-site-link" href="https://www.hafizakartci.com/index.php?route=checkout/cart" target="_blank" class="btn btn-success hidden">
+          🌐 Siteye Git
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
