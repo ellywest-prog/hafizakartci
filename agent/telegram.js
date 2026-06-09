@@ -8,7 +8,8 @@ const https = require('https');
 class TelegramBot {
   constructor() {
     this.token = process.env.TELEGRAM_BOT_TOKEN || '';
-    this.chatId = process.env.TELEGRAM_CHAT_ID || '';
+    const { getTelegramChatId } = require('./storage');
+    this.chatId = getTelegramChatId();
     this.apiBase = `https://api.telegram.org/bot${this.token}`;
     this.enabled = !!this.token;
     
@@ -29,7 +30,8 @@ class TelegramBot {
    */
   reload() {
     this.token = process.env.TELEGRAM_BOT_TOKEN || '';
-    this.chatId = process.env.TELEGRAM_CHAT_ID || '';
+    const { getTelegramChatId } = require('./storage');
+    this.chatId = getTelegramChatId();
     this.apiBase = `https://api.telegram.org/bot${this.token}`;
     this.enabled = !!this.token;
   }
@@ -39,19 +41,9 @@ class TelegramBot {
    */
   setChatId(chatId) {
     this.chatId = chatId;
-    // .env dosyasına da yaz
-    const fs = require('fs');
-    const path = require('path');
-    const envPath = path.join(__dirname, '..', '.env');
     try {
-      let envContent = fs.readFileSync(envPath, 'utf8');
-      if (envContent.includes('TELEGRAM_CHAT_ID=')) {
-        envContent = envContent.replace(/TELEGRAM_CHAT_ID=.*/, `TELEGRAM_CHAT_ID=${chatId}`);
-      } else {
-        envContent += `\nTELEGRAM_CHAT_ID=${chatId}`;
-      }
-      fs.writeFileSync(envPath, envContent, 'utf8');
-      process.env.TELEGRAM_CHAT_ID = chatId;
+      const { saveTelegramChatId } = require('./storage');
+      saveTelegramChatId(chatId);
       console.log(`📱 Telegram Chat ID kaydedildi: ${chatId}`);
     } catch (err) {
       console.error('Chat ID kaydetme hatası:', err.message);

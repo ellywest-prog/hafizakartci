@@ -10,7 +10,6 @@ const fs = require('fs');
 const path = require('path');
 
 const BASE_URL = 'https://www.hafizakartci.com';
-const COOKIES_PATH = path.join(__dirname, '..', 'data', 'cookies.json');
 
 class BrowserAgent {
   constructor() {
@@ -24,11 +23,10 @@ class BrowserAgent {
    */
   loadCookies() {
     try {
-      if (fs.existsSync(COOKIES_PATH)) {
-        const data = JSON.parse(fs.readFileSync(COOKIES_PATH, 'utf8'));
-        this.cookies = data.cookies || {};
-        this.loggedIn = data.loggedIn || false;
-      }
+      const { getCookies } = require('./storage');
+      const data = getCookies();
+      this.cookies = data.cookies || {};
+      this.loggedIn = data.loggedIn || false;
     } catch {
       this.cookies = {};
       this.loggedIn = false;
@@ -40,13 +38,12 @@ class BrowserAgent {
    */
   saveCookies() {
     try {
-      const dir = path.dirname(COOKIES_PATH);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(COOKIES_PATH, JSON.stringify({
+      const { saveCookies } = require('./storage');
+      saveCookies({
         cookies: this.cookies,
         loggedIn: this.loggedIn,
         savedAt: new Date().toISOString()
-      }, null, 2));
+      });
     } catch (err) {
       console.error('Cookie kaydetme hatası:', err.message);
     }

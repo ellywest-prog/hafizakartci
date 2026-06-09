@@ -10,6 +10,13 @@ const path = require('path');
 const fs = require('fs');
 const cron = require('node-cron');
 
+const {
+  isVercel,
+  initStorage,
+  getSettings: storageGetSettings,
+  saveSettings: storageSaveSettings
+} = require('./agent/storage');
+
 const { BrowserAgent } = require('./agent/browser');
 const { Searcher } = require('./agent/searcher');
 const { CartManager } = require('./agent/cart');
@@ -32,19 +39,12 @@ const cart = new CartManager(browser);
 const order = new OrderManager(browser, cart);
 const telegram = new TelegramBot();
 
-// Settings dosyası
-const settingsPath = path.join(__dirname, 'data', 'settings.json');
-
 function getSettings() {
-  try {
-    return JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-  } catch {
-    return { targetCartAmount: 5000, maxSearchResults: 12, currency: 'TL' };
-  }
+  return storageGetSettings();
 }
 
 function saveSettings(settings) {
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+  return storageSaveSettings(settings);
 }
 
 // ==================== API ROUTES ====================
@@ -520,7 +520,7 @@ async function processOptionSelection(chatId, text) {
   return true;
 }
 
-telegram.startPolling({
+const telegramHandlers = {
   onRawText: async (text, chatId) => {
     return await processOptionSelection(chatId, text);
   },
@@ -578,7 +578,6 @@ telegram.startPolling({
   },
 
   onAdd: async (argsStr) => {
-    // argsStr can be "1" or "1 10" or "1,10"
     const parts = argsStr.trim().split(/[\s,]+/);
     const indexStr = parts[0];
     const qtyStr = parts[1] || "1";
@@ -697,16 +696,52 @@ telegram.startPolling({
       await telegram.sendMessage('❌ Sipariş hatası: ' + err.message);
     }
   }
+};
+
+// ==================== WEBHOOK ROUTES ====================
+
+// Telegram Webhook Endpoint
+app.post('/api/telegram-webhook', async (req, res) => {
+  try {
+    const update = req.body;
+    if (update) {
+      console.log('📱 Telegram Webhook güncellemesi alındı:', update.update_id);
+      
+      // Otomatik giriş kontrolü
+      if (!browser.isLoggedIn()) {
+        const email = process.env.HAFIZAKARTCI_EMAIL;
+        const password = process.env.HAFIZAKARTCI_PASSWORD;
+        if (email && password) {
+          try {
+            await browser.login(email, password);
+          } catch (e) {
+            console.error('Webhook otomatik giriş hatası:', e.message);
+          }
+        }
+      }
+
+      await telegram.processUpdate(update, telegramHandlers);
+    }
+    res.status(200).send('OK');
+  } catch (err) {
+    console.error('Webhook işleme hatası:', err.message);
+    res.status(200).send('OK'); // Telegram'ın sürekli tekrar etmesini önlemek için 200 dönülür
+  }
 });
 
-// ==================== CRON JOBS ====================
+// Vercel Cron Raporu Endpoint'i
+app.get('/api/cron/daily-report', async (req, res) => {
+  // Cron güvenliği
+  if (process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+    return res.status(401).json({ success: false, error: 'Unauthorized' });
+  }
 
-// Her gün saat 10:00'da çalışacak görev
-cron.schedule('0 10 * * *', async () => {
-  if (!telegram.enabled || !telegram.chatId) return;
-  console.log('⏰ Günlük indirim raporu cron job tetiklendi.');
-  
+  console.log('⏰ Daily Report Cron tetiklendi.');
   try {
+    if (!telegram.enabled || !telegram.chatId) {
+      return res.json({ success: false, message: 'Telegram pasif veya chat ID yok' });
+    }
+
     if (!browser.isLoggedIn()) {
       const email = process.env.HAFIZAKARTCI_EMAIL;
       const password = process.env.HAFIZAKARTCI_PASSWORD;
@@ -723,26 +758,69 @@ cron.schedule('0 10 * * *', async () => {
         });
         text += `Sepete eklemek için: <b>/ekle [no]</b> (Örn: /ekle 1)`;
         await telegram.sendMessage(text);
+        return res.json({ success: true, message: 'Rapor gönderildi' });
       }
+      return res.json({ success: true, message: 'İndirimli ürün bulunamadı' });
     }
+    return res.status(401).json({ success: false, message: 'Oturum açılamadı' });
   } catch (err) {
-    console.error('Cron job hatası:', err);
+    console.error('Cron çalışırken hata:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
 // ==================== START SERVER ====================
 
-app.listen(PORT, () => {
-  console.log(`
+(async () => {
+  // Depolamayı başlat ve çerez/ayarları KV'den eşitle
+  await initStorage();
+  
+  // Vercel'de değilsek yerel polling ve cron'u başlat
+  if (!isVercel) {
+    telegram.startPolling(telegramHandlers);
+    
+    // Her gün saat 10:00'da çalışacak yerel cron
+    cron.schedule('0 10 * * *', async () => {
+      if (!telegram.enabled || !telegram.chatId) return;
+      console.log('⏰ Günlük indirim raporu cron job tetiklendi.');
+      
+      try {
+        if (!browser.isLoggedIn()) {
+          const email = process.env.HAFIZAKARTCI_EMAIL;
+          const password = process.env.HAFIZAKARTCI_PASSWORD;
+          if (email && password) await browser.login(email, password);
+        }
+        
+        if (browser.isLoggedIn()) {
+          const results = await searcher.getSpecials();
+          if (results.success && results.products && results.products.length > 0) {
+            lastSearchResults = results.products.slice(0, 10);
+            let text = `⏰🔥 <b>GÜNÜN İNDİRİMLERİ (${results.products.length} ürün)</b>\n\n`;
+            lastSearchResults.forEach((p, i) => {
+              text += `${i + 1}. ${telegram.escapeHtml(p.name)}\n   🔻 <del>${telegram.formatPrice(p.oldPrice)}</del> ➡️ 💰 <b>${telegram.formatPrice(p.price)}</b>\n\n`;
+            });
+            text += `Sepete eklemek için: <b>/ekle [no]</b> (Örn: /ekle 1)`;
+            await telegram.sendMessage(text);
+          }
+        }
+      } catch (err) {
+        console.error('Cron job hatası:', err);
+      }
+    });
+  }
+
+  // Sunucuyu başlat
+  app.listen(PORT, () => {
+    console.log(`
   ╔══════════════════════════════════════════════════╗
   ║                                                  ║
   ║   🤖 Hafıza Kartçı Ajan Sistemi                  ║
   ║   📍 http://localhost:${PORT}                      ║
-  ║                                                  ║
-  ║   Durumlar:                                      ║
-  ║   🔴 Giriş yapılmadı                              ║
-  ║   🛒 Sepet: 0 ürün                                ║
+  ║   ⚙️  Vercel Modu: ${isVercel ? 'EVET' : 'HAYIR'}               ║
   ║                                                  ║
   ╚══════════════════════════════════════════════════╝
-  `);
-});
+    `);
+  });
+})();
+
+module.exports = app;

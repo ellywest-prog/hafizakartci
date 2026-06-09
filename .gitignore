@@ -2,4 +2,6 @@ node_modules/
 .env
 data/cookies.json
 data/cart-history.json
+data/settings.json
+data/telegram_chat_id.txt
 *.log
