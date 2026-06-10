@@ -698,7 +698,25 @@ const telegramHandlers = {
   }
 };
 
+// Telegram Webhook Ayarlama Endpointi
+app.get('/api/telegram/set-webhook', async (req, res) => {
+  try {
+    if (!telegram.enabled) return res.status(400).json({ error: 'Telegram pasif' });
+    
+    const host = req.headers.host || req.hostname;
+    const webhookUrl = `https://${host}/api/telegram-webhook`;
+    
+    console.log(`Setting Telegram Webhook to: ${webhookUrl}`);
+    const result = await telegram.apiRequest('setWebhook', { url: webhookUrl });
+    
+    res.json({ success: true, webhookUrl, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==================== WEBHOOK ROUTES ====================
+
 
 // Telegram Webhook Endpoint
 app.post('/api/telegram-webhook', async (req, res) => {
