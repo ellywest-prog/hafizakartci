@@ -14,7 +14,9 @@ const {
   isVercel,
   initStorage,
   getSettings: storageGetSettings,
-  saveSettings: storageSaveSettings
+  saveSettings: storageSaveSettings,
+  getLastSearchResults,
+  saveLastSearchResults
 } = require('./agent/storage');
 
 const { BrowserAgent } = require('./agent/browser');
@@ -539,9 +541,11 @@ const telegramHandlers = {
       if (!results.success) return await telegram.sendMessage('❌ Arama hatası: ' + results.error);
       if (results.products.length === 0) return await telegram.sendMessage('😕 Ürün bulunamadı.');
       
-      lastSearchResults = results.products.slice(0, 10);
+      const resultsToSave = results.products.slice(0, 10);
+      saveLastSearchResults(resultsToSave);
+      
       let text = `🔎 <b>${results.totalProducts || results.products.length} sonuç bulundu:</b>\n\n`;
-      lastSearchResults.forEach((p, i) => {
+      resultsToSave.forEach((p, i) => {
         text += `${i + 1}. ${telegram.escapeHtml(p.name)}\n   💰 <b>${telegram.formatPrice(p.price)}</b>\n`;
       });
       text += `\nSepete eklemek için: <b>/ekle [no]</b> (Örn: /ekle 1)`;
@@ -565,9 +569,11 @@ const telegramHandlers = {
       if (!results.success) return await telegram.sendMessage('❌ İndirimleri çekerken hata: ' + results.error);
       if (!results.products || results.products.length === 0) return await telegram.sendMessage('😕 Şu an indirimde ürün bulunmuyor.');
       
-      lastSearchResults = results.products.slice(0, 10);
+      const resultsToSave = results.products.slice(0, 10);
+      saveLastSearchResults(resultsToSave);
+      
       let text = `🔥 <b>GÜNÜN İNDİRİMLERİ (${results.products.length} ürün)</b>\n\n`;
-      lastSearchResults.forEach((p, i) => {
+      resultsToSave.forEach((p, i) => {
         text += `${i + 1}. ${telegram.escapeHtml(p.name)}\n   🔻 <del>${telegram.formatPrice(p.oldPrice)}</del> ➡️ 💰 <b>${telegram.formatPrice(p.price)}</b>\n\n`;
       });
       text += `Sepete eklemek için: <b>/ekle [no]</b> (Örn: /ekle 1)`;
@@ -578,69 +584,105 @@ const telegramHandlers = {
   },
 
   onAdd: async (argsStr) => {
-    const parts = argsStr.trim().split(/[\s,]+/);
-    const indexStr = parts[0];
-    const qtyStr = parts[1] || "1";
-    
-    const idx = parseInt(indexStr) - 1;
-    const quantity = Math.max(1, parseInt(qtyStr) || 1);
+    const memoryResults = getLastSearchResults();
+    if (!memoryResults || memoryResults.length === 0) {
+      return await telegram.sendMessage('⚠️ Önce arama yapmalısınız. Lütfen ürünü tekrar arayın.');
+    }
 
-    if (isNaN(idx) || idx < 0 || idx >= lastSearchResults.length) {
-      return await telegram.sendMessage('⚠️ Geçersiz ürün numarası. Lütfen arama sonuçlarındaki numaralardan birini girin. (Örn: /ekle 1 veya /ekle 1,10)');
-    }
-    const product = lastSearchResults[idx];
-    if (!product.productId) {
-      return await telegram.sendMessage('⚠️ Bu ürün direkt olarak eklenemiyor (Seçenekleri olabilir). Lütfen site üzerinden ekleyin.');
+    const parts = argsStr.trim().split(/[\s,]+/);
+    const orders = [];
+    
+    let i = 0;
+    while(i < parts.length) {
+      if (!parts[i]) { i++; continue; }
+      const itemNo = parseInt(parts[i]);
+      if (isNaN(itemNo)) { i++; continue; }
+      
+      const idx = itemNo - 1;
+      let quantity = 1;
+      
+      if (i + 1 < parts.length) {
+         const nextNum = parseInt(parts[i+1]);
+         if (!isNaN(nextNum)) {
+            quantity = nextNum;
+            i++; 
+         }
+      }
+      
+      if (idx >= 0 && idx < memoryResults.length) {
+         orders.push({ product: memoryResults[idx], quantity: Math.max(1, quantity) });
+      } else {
+         await telegram.sendMessage(`⚠️ ${itemNo} numaralı ürün arama sonuçlarında bulunamadı.`);
+      }
+      i++;
     }
     
-    try {
-      await telegram.sendMessage(`⏳ ${telegram.escapeHtml(product.name)} (${quantity} adet) sepete ekleniyor...`);
-      const result = await cart.addToCart(product.productId, quantity);
-      
-      if (result.success) {
-        cart.addToLocalCart({
-          productId: product.productId,
-          name: product.name,
-          price: product.price,
-          image: product.image,
-          quantity: quantity
-        });
-        
-        const settings = getSettings();
-        const cartTotal = cart.getLocalCartTotal();
-        const targetReached = cartTotal >= settings.targetCartAmount;
-        
-        await telegram.notifyCartAdd(product.name, product.price, cartTotal, settings.targetCartAmount);
-        
-        if (targetReached) {
-          await telegram.notifyTargetReached(cartTotal, settings.targetCartAmount, cart.getLocalCart().length);
-        }
-      } else {
-        if (result.needsOptions && result.redirect) {
-          await telegram.sendMessage('⏳ Ürün seçenekleri alınıyor...');
-          const details = await searcher.getProductDetails(result.redirect);
-          if (details && details.options && details.options.length > 0) {
-            const chatId = String(telegram.chatId);
-            pendingSelections[chatId] = {
-              productId: product.productId,
-              productName: product.name,
-              productImage: product.image,
-              productPrice: product.price,
-              quantity: quantity,
-              options: details.options,
-              currentOptionIndex: 0,
-              selectedOptions: {}
-            };
-            await askNextOption(chatId);
-          } else {
-            await telegram.sendMessage('⚠️ Bu ürün seçenek gerektiriyor ancak stokta seçenek bulunamadı veya okunamadı. Lütfen site üzerinden ekleyin.');
-          }
-        } else {
-           await telegram.sendMessage('❌ Sepete eklenemedi: ' + (result.error || 'Bilinmeyen hata'));
-        }
-      }
-    } catch(err) {
-      await telegram.sendMessage('❌ Hata: ' + err.message);
+    if (orders.length === 0) {
+      return await telegram.sendMessage('⚠️ Geçersiz komut. Örnek: /ekle 2 1 (2 numaralı üründen 1 tane) veya /ekle 2 2 3 3 (Çoklu ekleme)');
+    }
+
+    if (orders.length > 1) {
+      await telegram.sendMessage(`⏳ ${orders.length} çeşit ürün sepete ekleniyor... Lütfen bekleyin.`);
+    }
+    
+    for (const order of orders) {
+       const product = order.product;
+       const quantity = order.quantity;
+       
+       if (!product.productId) {
+         await telegram.sendMessage(`⚠️ ${telegram.escapeHtml(product.name)} direkt olarak eklenemiyor (Seçenekleri olabilir).`);
+         continue;
+       }
+       
+       try {
+         if (orders.length === 1) await telegram.sendMessage(`⏳ ${telegram.escapeHtml(product.name)} (${quantity} adet) sepete ekleniyor...`);
+         const result = await cart.addToCart(product.productId, quantity);
+         
+         if (result.success) {
+           cart.addToLocalCart({
+             productId: product.productId,
+             name: product.name,
+             price: product.price,
+             image: product.image,
+             quantity: quantity
+           });
+           
+           const settings = getSettings();
+           const cartTotal = cart.getLocalCartTotal();
+           const targetReached = cartTotal >= settings.targetCartAmount;
+           
+           await telegram.notifyCartAdd(product.name, product.price, cartTotal, settings.targetCartAmount);
+           
+           if (targetReached) {
+             await telegram.notifyTargetReached(cartTotal, settings.targetCartAmount, cart.getLocalCart().length);
+           }
+         } else {
+           if (result.needsOptions && result.redirect) {
+             await telegram.sendMessage(`⏳ ${telegram.escapeHtml(product.name)} için seçenekler alınıyor...`);
+             const details = await searcher.getProductDetails(result.redirect);
+             if (details && details.options && details.options.length > 0) {
+               const chatId = String(telegram.chatId);
+               pendingSelections[chatId] = {
+                 productId: product.productId,
+                 productName: product.name,
+                 productImage: product.image,
+                 productPrice: product.price,
+                 quantity: quantity,
+                 options: details.options,
+                 currentOptionIndex: 0,
+                 selectedOptions: {}
+               };
+               await askNextOption(chatId);
+             } else {
+               await telegram.sendMessage(`⚠️ ${telegram.escapeHtml(product.name)} seçenek gerektiriyor ancak okunamadı.`);
+             }
+           } else {
+              await telegram.sendMessage(`❌ ${telegram.escapeHtml(product.name)} eklenemedi: ` + (result.error || 'Bilinmeyen hata'));
+           }
+         }
+       } catch(err) {
+         await telegram.sendMessage(`❌ Hata (${telegram.escapeHtml(product.name)}): ` + err.message);
+       }
     }
   },
 

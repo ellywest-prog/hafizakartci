@@ -15,6 +15,7 @@ const DATA_DIR = isVercel ? '/tmp' : path.join(__dirname, '..', 'data');
 const COOKIES_PATH = path.join(DATA_DIR, 'cookies.json');
 const SETTINGS_PATH = path.join(DATA_DIR, 'settings.json');
 const CHAT_ID_PATH = path.join(DATA_DIR, 'telegram_chat_id.txt');
+const SEARCH_RESULTS_PATH = path.join(DATA_DIR, 'search_results.json');
 
 // Dizin varlığını kontrol et ve oluştur
 try {
@@ -212,6 +213,34 @@ function saveTelegramChatId(chatId) {
   }
 }
 
+/**
+ * Arama sonuçlarını getirir (Senkron)
+ */
+function getLastSearchResults() {
+  try {
+    if (fs.existsSync(SEARCH_RESULTS_PATH)) {
+      return JSON.parse(fs.readFileSync(SEARCH_RESULTS_PATH, 'utf8'));
+    }
+  } catch {}
+  return [];
+}
+
+/**
+ * Arama sonuçlarını kaydeder
+ */
+function saveLastSearchResults(results) {
+  try {
+    const dataStr = JSON.stringify(results);
+    fs.writeFileSync(SEARCH_RESULTS_PATH, dataStr, 'utf8');
+    if (hasKV) {
+      kvRequest('SET', ['search_results', dataStr]).catch(()=>{});
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 module.exports = {
   isVercel,
   COOKIES_PATH,
@@ -223,5 +252,7 @@ module.exports = {
   getCookies,
   saveCookies,
   getTelegramChatId,
-  saveTelegramChatId
+  saveTelegramChatId,
+  getLastSearchResults,
+  saveLastSearchResults
 };
