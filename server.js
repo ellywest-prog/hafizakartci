@@ -809,18 +809,20 @@ app.get('/api/cron/daily-report', async (req, res) => {
     });
   }
 
-  // Sunucuyu başlat
-  app.listen(PORT, () => {
-    console.log(`
+  // Sunucuyu başlat (Sadece yerel ortamda)
+  if (!isVercel) {
+    app.listen(PORT, () => {
+      console.log(`
   ╔══════════════════════════════════════════════════╗
   ║                                                  ║
   ║   🤖 Hafıza Kartçı Ajan Sistemi                  ║
   ║   📍 http://localhost:${PORT}                      ║
-  ║   ⚙️  Vercel Modu: ${isVercel ? 'EVET' : 'HAYIR'}               ║
+  ║   ⚙️  Vercel Modu: HAYIR                         ║
   ║                                                  ║
   ╚══════════════════════════════════════════════════╝
-    `);
-  });
+      `);
+    });
+  }
 })();
 
 module.exports = app;
