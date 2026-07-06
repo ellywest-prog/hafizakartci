@@ -6,16 +6,15 @@
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
-const fs = require('fs');
-const path = require('path');
+const storage = require('./storage');
 
 const BASE_URL = 'https://www.hafizakartci.com';
-const COOKIES_PATH = path.join(__dirname, '..', 'data', 'cookies.json');
 
 class BrowserAgent {
   constructor() {
     this.cookies = {};
     this.loggedIn = false;
+    this._reloginInProgress = false;
     this.loadCookies();
   }
 
@@ -24,10 +23,11 @@ class BrowserAgent {
    */
   loadCookies() {
     try {
-      if (fs.existsSync(COOKIES_PATH)) {
-        const data = JSON.parse(fs.readFileSync(COOKIES_PATH, 'utf8'));
-        this.cookies = data.cookies || {};
-        this.loggedIn = data.loggedIn || false;
+      const data = storage.getCookies();
+      this.cookies = data.cookies || {};
+      this.loggedIn = data.loggedIn || false;
+      if (this.loggedIn) {
+        console.log('🍪 Kayıtlı çerezler yüklendi (loggedIn:', this.loggedIn, ')');
       }
     } catch {
       this.cookies = {};
@@ -40,13 +40,11 @@ class BrowserAgent {
    */
   saveCookies() {
     try {
-      const dir = path.dirname(COOKIES_PATH);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(COOKIES_PATH, JSON.stringify({
+      storage.saveCookies({
         cookies: this.cookies,
         loggedIn: this.loggedIn,
         savedAt: new Date().toISOString()
-      }, null, 2));
+      });
     } catch (err) {
       console.error('Cookie kaydetme hatası:', err.message);
     }
@@ -217,11 +215,55 @@ class BrowserAgent {
     try {
       const response = await this.request(`${BASE_URL}/index.php?route=account/account`);
       const isValid = response.body.includes('route=account/logout');
+      
+      if (this.loggedIn && !isValid) {
+        console.log('⚠️ Oturum süresi dolmuş, cookie\'ler geçersiz.');
+      }
+      
       this.loggedIn = isValid;
+      this.saveCookies();
       return isValid;
     } catch {
       this.loggedIn = false;
       return false;
+    }
+  }
+
+  /**
+   * Oturumun geçerli olduğundan emin ol.
+   * Geçersizse çevresel değişkenlerden otomatik yeniden giriş yapar.
+   * @returns {boolean} Oturum geçerliyse true
+   */
+  async ensureLoggedIn() {
+    // Zaten yeniden giriş yapılıyor
+    if (this._reloginInProgress) return this.loggedIn;
+
+    // Önce mevcut oturumu kontrol et
+    if (this.loggedIn) {
+      const sessionValid = await this.checkSession();
+      if (sessionValid) return true;
+    }
+
+    // Oturum geçersiz, otomatik yeniden giriş dene
+    const email = process.env.HAFIZAKARTCI_EMAIL;
+    const password = process.env.HAFIZAKARTCI_PASSWORD;
+
+    if (!email || !password) {
+      console.error('❌ Otomatik yeniden giriş yapılamıyor: Giriş bilgileri yok.');
+      return false;
+    }
+
+    this._reloginInProgress = true;
+    try {
+      console.log('🔄 Otomatik yeniden giriş yapılıyor...');
+      await this.login(email, password);
+      console.log('✅ Otomatik yeniden giriş başarılı!');
+      return true;
+    } catch (err) {
+      console.error('❌ Otomatik yeniden giriş başarısız:', err.message);
+      return false;
+    } finally {
+      this._reloginInProgress = false;
     }
   }
 }

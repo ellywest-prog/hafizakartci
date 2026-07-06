@@ -7,7 +7,6 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const fs = require('fs');
 const cron = require('node-cron');
 
 const { BrowserAgent } = require('./agent/browser');
@@ -15,6 +14,7 @@ const { Searcher } = require('./agent/searcher');
 const { CartManager } = require('./agent/cart');
 const { OrderManager } = require('./agent/order');
 const { TelegramBot } = require('./agent/telegram');
+const storage = require('./agent/storage');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -32,19 +32,13 @@ const cart = new CartManager(browser);
 const order = new OrderManager(browser, cart);
 const telegram = new TelegramBot();
 
-// Settings dosyası
-const settingsPath = path.join(__dirname, 'data', 'settings.json');
-
+// Settings yönetimi - storage modülü üzerinden
 function getSettings() {
-  try {
-    return JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-  } catch {
-    return { targetCartAmount: 5000, maxSearchResults: 12, currency: 'TL' };
-  }
+  return storage.getSettings();
 }
 
 function saveSettings(settings) {
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+  storage.saveSettings(settings);
 }
 
 // ==================== API ROUTES ====================
@@ -107,15 +101,10 @@ app.post('/api/search', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Arama terimi gerekli' });
     }
 
-    if (!browser.isLoggedIn()) {
-      // Otomatik giriş dene
-      const email = process.env.HAFIZAKARTCI_EMAIL;
-      const password = process.env.HAFIZAKARTCI_PASSWORD;
-      if (email && password) {
-        await browser.login(email, password);
-      } else {
-        return res.status(401).json({ success: false, error: 'Önce giriş yapmalısınız' });
-      }
+    // Otomatik oturum kontrolü ve yeniden giriş
+    const loggedIn = await browser.ensureLoggedIn();
+    if (!loggedIn) {
+      return res.status(401).json({ success: false, error: 'Siteye giriş yapılamadı. Lütfen giriş bilgilerinizi kontrol edin.' });
     }
 
     const results = await searcher.search(query, { page, sort, order: sortOrder, limit });
@@ -134,8 +123,10 @@ app.post('/api/cart/add', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Ürün ID gerekli' });
     }
 
-    if (!browser.isLoggedIn()) {
-      return res.status(401).json({ success: false, error: 'Önce giriş yapmalısınız' });
+    // Otomatik oturum kontrolü ve yeniden giriş
+    const loggedIn = await browser.ensureLoggedIn();
+    if (!loggedIn) {
+      return res.status(401).json({ success: false, error: 'Siteye giriş yapılamadı. Lütfen giriş bilgilerinizi kontrol edin.' });
     }
 
     const result = await cart.addToCart(productId, quantity || 1);
@@ -270,8 +261,9 @@ app.get('/api/order/summary', async (req, res) => {
 // Siparişi onayla
 app.post('/api/order/confirm', async (req, res) => {
   try {
-    if (!browser.isLoggedIn()) {
-      return res.status(401).json({ success: false, error: 'Önce giriş yapmalısınız' });
+    const loggedIn = await browser.ensureLoggedIn();
+    if (!loggedIn) {
+      return res.status(401).json({ success: false, error: 'Siteye giriş yapılamadı. Lütfen giriş bilgilerinizi kontrol edin.' });
     }
 
     const result = await order.confirmOrder();
@@ -313,8 +305,9 @@ app.post('/api/settings', (req, res) => {
 // Siteye doğrudan sepeti senkronize et
 app.post('/api/cart/sync', async (req, res) => {
   try {
-    if (!browser.isLoggedIn()) {
-      return res.status(401).json({ success: false, error: 'Önce giriş yapmalısınız' });
+    const loggedIn = await browser.ensureLoggedIn();
+    if (!loggedIn) {
+      return res.status(401).json({ success: false, error: 'Siteye giriş yapılamadı. Lütfen giriş bilgilerinizi kontrol edin.' });
     }
 
     const localItems = cart.getLocalCart();
@@ -732,17 +725,31 @@ cron.schedule('0 10 * * *', async () => {
 
 // ==================== START SERVER ====================
 
-app.listen(PORT, () => {
-  console.log(`
+// Storage'ı başlat (Vercel KV senkronizasyonu) ve ardından sunucuyu aç
+async function startServer() {
+  await storage.initStorage();
+  
+  // Kayıtlı cookie'leri yükledikten sonra oturumu kontrol et ve gerekirse yeniden giriş yap
+  const sessionOk = await browser.ensureLoggedIn();
+  
+  app.listen(PORT, () => {
+    console.log(`
   ╔══════════════════════════════════════════════════╗
   ║                                                  ║
   ║   🤖 Hafıza Kartçı Ajan Sistemi                  ║
   ║   📍 http://localhost:${PORT}                      ║
   ║                                                  ║
   ║   Durumlar:                                      ║
-  ║   🔴 Giriş yapılmadı                              ║
-  ║   🛒 Sepet: 0 ürün                                ║
+  ║   ${sessionOk ? '🟢 Giriş yapıldı' : '🔴 Giriş yapılmadı'}                              ║
+  ║   🛒 Sepet: ${cart.getLocalCart().length} ürün                                ║
   ║                                                  ║
   ╚══════════════════════════════════════════════════╝
-  `);
+    `);
+  });
+}
+
+startServer().catch(err => {
+  console.error('Sunucu başlatma hatası:', err);
+  // Hata durumunda bile sunucuyu başlat
+  app.listen(PORT, () => console.log(`⚠️ Sunucu ${PORT} portunda başlatıldı (başlatma hatası ile)`));
 });
